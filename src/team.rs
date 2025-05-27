@@ -8,6 +8,13 @@ pub enum Team {
 }
 
 impl Team {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::White => "white",
+            Self::Black => "black",
+        }
+    }
+
     pub const fn pawn_dir(&self) -> i8 {
         match self {
             Self::White => 1,

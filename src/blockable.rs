@@ -1,4 +1,4 @@
-use crate::{board::BitBoard, cached::*, delta::*, pieces::Piece, square::Square, state::BoardState, team::Team};
+use crate::{board::BitBoard, cached::*, ray::*, pieces::Piece, square::Square, state::BoardState, team::Team};
 
 /// Compute the squares a piece could move to to maintain a pin, block check, or capture a checking piece.
 /// This can be used to filter out moves. If there is no check or pins, then the returned mask with be u64::MAX.

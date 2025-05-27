@@ -1,4 +1,4 @@
-use crate::{board::BitBoard, cached::*, delta::*, pieces::Piece, square::Square, state::BoardState, team::Team};
+use crate::{board::BitBoard, cached::*, ray::*, pieces::Piece, square::Square, state::BoardState, team::Team};
 
 
 pub fn defense(state: &BoardState) -> BitBoard {

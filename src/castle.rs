@@ -1,4 +1,4 @@
-use crate::{board::BitBoard, cached::BETWEEN_EXCLUSIVE, settings::CastleSettings, square::Square, team::Team};
+use crate::{board::BitBoard, cached::BETWEEN_EXCLUSIVE, square::Square, team::Team};
 
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -77,6 +77,10 @@ impl CastleRights {
         }.into()
     }
 
+    pub fn set_king(&mut self, file: u8) {
+        self.settings.king_column = file;
+    }
+
     pub fn king_start(&self, team: Team) -> Square {
         Square::new(team.back_rank(), self.settings.king_column as i8)
     }
@@ -138,4 +142,26 @@ pub fn can_castle(
     rights.has(side, team) &&
     !defense.intersects(rights.required_unchecked_squares(king, side, team)) && 
     !occupied.intersects(rights.required_unoccupied_squares(king, side, team)) 
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct CastleSettings {
+    /// The Column/File the king starts on.
+    pub king_column: u8,
+
+    /// The start column of the kingside rook.
+    pub short_column: u8,
+
+    /// The start column of the queenside rook.
+    pub long_column: u8,
+}
+
+impl Default for CastleSettings {
+    fn default() -> Self {
+        Self {
+            king_column: 4,
+            short_column: 7,
+            long_column: 0
+        }
+    }
 }

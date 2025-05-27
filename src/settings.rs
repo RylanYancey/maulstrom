@@ -15,16 +15,12 @@ pub struct GameSettings {
 
     /// How Wormholes are spawned or placed on the board.
     pub wormhole: WormholeSettings,
-
-    /// How castling behaves.
-    pub castle: CastleSettings,
 }
 
 impl Default for GameSettings {
     fn default() -> Self {
         Self {
             is_chess960: false,
-            castle: CastleSettings::default(),
             clock: None,
             wormhole: WormholeSettings::default(),
         }
@@ -91,24 +87,3 @@ pub enum WormholeSpawnMode {
     Mirror,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct CastleSettings {
-    /// The Column/File the king starts on.
-    pub king_column: u8,
-
-    /// The start column of the kingside rook.
-    pub short_column: u8,
-
-    /// The start column of the queenside rook.
-    pub long_column: u8,
-}
-
-impl Default for CastleSettings {
-    fn default() -> Self {
-        Self {
-            king_column: 4,
-            short_column: 7,
-            long_column: 0
-        }
-    }
-}

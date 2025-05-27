@@ -34,15 +34,18 @@ impl Piece {
         }
     }
 
-    pub fn from_u8(u: u8) -> Self {
-        match u {
-            0 => Self::Bishop,
-            1 => Self::Knight,
-            2 => Self::Queen,
-            3 => Self::King,
-            4 => Self::Rook,
-            _ => Self::Pawn,
-        }
+    pub fn from_u8(u: u8) -> Option<Self> {
+        Some(
+            match u {
+                0 => Self::Bishop,
+                1 => Self::Knight,
+                2 => Self::Queen,
+                3 => Self::King,
+                4 => Self::Rook,
+                5 => Self::Pawn,
+                _ => return None
+            }
+        )
     }
 }
 
@@ -59,6 +62,19 @@ pub struct Pieces {
 }   
 
 impl Pieces {
+    pub fn just_pawns() -> Self {
+        Self {
+            bishops: BitBoard::new(),
+            knights: BitBoard::new(),
+            queens: BitBoard::new(),
+            kings: BitBoard::new(),
+            rooks: BitBoard::new(),
+            pawns: BitBoard::new().with_rank(1).with_rank(6),
+            white: BitBoard::new().with_rank(1),
+            black: BitBoard::new().with_rank(6),
+        }
+    }
+
     pub fn get(&self, piece: Piece, team: Team) -> BitBoard {
         self.index(piece) & self.on_team(team)
     }
@@ -120,9 +136,21 @@ impl Pieces {
         None
     }
 
-    /// Insert a piece at the square, will not remove or check for
-    /// any other pieces on the square.
-    pub fn insert_unchecked(&mut self, at: Square, pc: Piece, team: Team) {
+    /// Insert a piece at the square, clearing any pieces already on the square.
+    pub fn insert(&mut self, at: Square, pc: Piece, team: Team, holes: BitBoard) {
+        let i = if holes.has(at) { holes | at } else { at.into() };
+        if (self.white | self.black).intersects(i) {
+            let j = !i;
+            self.white &= j;
+            self.black &= j;
+            self.bishops &= j;
+            self.knights &= j;
+            self.queens &= j;
+            self.kings &= j;
+            self.rooks &= j;
+            self.pawns &= j;
+        }
+
         match team {
             Team::White => self.white |= at,
             Team::Black => self.black |= at
@@ -146,6 +174,20 @@ impl Pieces {
             Piece::King => self.kings,
             Piece::Pawn => self.pawns,
         }
+    }
+
+    pub fn setup_from_file(&mut self, piece: Piece, file: u8) {
+        let sqs = BitBoard::new() | (0, file as i8) | (7, file as i8);
+        self.white |= (0, file as i8);
+        self.black |= (7, file as i8);
+        *match piece {
+            Piece::Bishop => &mut self.bishops,
+            Piece::Knight => &mut self.knights,
+            Piece::Queen => &mut self.queens,
+            Piece::King => &mut self.kings,
+            Piece::Rook => &mut self.rooks,
+            Piece::Pawn => &mut self.pawns,
+        } |= sqs;
     }
 }
 

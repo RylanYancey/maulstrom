@@ -1,4 +1,4 @@
-use crate::{board::BitBoard, cached::*, castle::{can_castle, Castle}, delta::*, pieces::Piece, square::Square, state::BoardState, team::Team};
+use crate::{board::BitBoard, cached::*, castle::{can_castle, Castle}, ray::*, pieces::Piece, square::Square, state::BoardState, team::Team};
 
 pub fn compute(state: &BoardState, sq: Square) -> BitBoard {
     let team = state.turn;

@@ -1,6 +1,6 @@
 use chrono::Duration;
 
-use crate::{board::BitBoard, castle::{Castle, CastleRights}, end::EndCondition, pieces::Piece, settings::GameSettings, square::Square, state::BoardState, trace::MoveTrace};
+use crate::{board::BitBoard, castle::{Castle, CastleRights}, delta::BoardDelta, end::EndCondition, pieces::Piece, rng::WyRand, settings::GameSettings, square::Square, state::BoardState, trace::MoveTrace};
 
 #[derive(Clone)]
 pub struct ChessGame {
@@ -11,13 +11,9 @@ pub struct ChessGame {
     pub cursor: Cursor,
 
     /// The changes that occur at each move in the game.
-    /// If this game is a Branch, the first element will
-    /// be the delta taken to reach the start position. If this is not
-    /// a branch the length will not contain a delta for the
-    /// starting position.
     pub deltas: Vec<BoardDelta>,
 
-    /// Configuration of game settings.
+    /// Settings that control wormhole and clock behavior.
     pub settings: GameSettings,
 
     /// A Unique identifier for this game.
@@ -44,28 +40,89 @@ pub struct ChessGame {
 }
 
 impl ChessGame {
+    pub fn init(settings: GameSettings) -> Self {
+        let seed = crate::rng::entropy();
+        let mut rng = WyRand { seed };
+
+        let start = if settings.is_chess960 {
+            crate::init::init_chess960(&mut rng)
+        } else {
+            BoardState::default()
+        };
+
+        let cursor = if let Some(clock) = settings.clock {
+            Cursor {
+                state: start,
+                index: 0,
+                white_time: clock.total,
+                black_time: clock.total,
+                clock_is_ticking: true,
+            }
+        } else {
+            Cursor::new(start)
+        };
+
+        Self {
+            start,
+            cursor,
+            deltas: Vec::new(),
+            settings,
+            game_id: crate::rng::entropy(),
+            is_branch: None,
+            seed,
+            end: None,
+        }
+    }
+
     pub fn cursor(&self) -> &Cursor {
         &self.cursor
     }
 
     pub fn cursor_is_last(&self) -> bool {
-        if self.is_branch.is_some() {
-            self.cursor.index == self.deltas.len() - 1
+        self.cursor.index == self.deltas.len()
+    }
+
+    /// Get the delta for the move that was played in the cursor position.
+    /// If this is the last move in the game, None is returned.
+    pub fn get_next_delta(&self) -> Option<BoardDelta> {
+        self.deltas.get(self.cursor.index).copied()
+    }
+
+    /// Get the delta for the move that was played to reach this cursor position.
+    pub fn get_prev_delta(&self) -> Option<BoardDelta> {
+        if self.cursor.index == 0 {
+            self.is_branch.map(|br| br.delta)
         } else {
-            self.cursor.index == self.deltas.len()
+            self.deltas.get(self.cursor.index - 1).copied()
         }
     }
 
-    /// Get the delta for the move that was played in this position.
-    /// If this is the last move in the game, None is returned.
-    pub fn get_next_delta(&self) -> Option<BoardDelta> {
-        (!self.cursor_is_last()).then(|| {
-            if self.is_branch.is_some() {
-                self.deltas[self.cursor.index - 1]
-            } else {
-                self.deltas[self.cursor.index]
-            }
-        })
+    pub fn branch(&mut self, delta: BoardDelta) -> ChessGame {
+        let next = self.cursor.state.next(delta);
+
+        let halfmoves = if let Some(branch) = self.is_branch {
+            branch.src_halfmoves as usize + self.cursor.index
+        } else {
+            self.cursor.index
+        };
+
+        Self {
+            start: next,
+            cursor: Cursor::new(next),
+            deltas: Vec::new(),
+            settings: self.settings,
+            game_id: crate::rng::entropy(),
+            is_branch: Some(
+                Branch {
+                    parent_id: self.game_id,
+                    src_index: self.cursor.index,
+                    delta,
+                    src_halfmoves: halfmoves as u16
+                }
+            ),
+            seed: self.seed,
+            end: None, // todo: figure this out
+        }
     }
 
     pub fn play(
@@ -81,59 +138,116 @@ impl ChessGame {
         } 
 
         if let Some(trace) = self.cursor.state.trace(src, dst) {
-            if trace.requires_promotion && promote.is_none_or(|pc| pc == Piece::Pawn) {
-                return Err(PlayError::RequiresPromotion)
+            let mut delta = BoardDelta::default();
+            if trace.requires_promotion {
+                if promote.is_none_or(|pc| matches!(pc, Piece::Pawn | Piece::King)) {
+                    return Err(PlayError::RequiresPromotion)
+                } else {
+                    delta.set_promote_pc(promote.unwrap());
+                }
             }
 
-            let mut next = self.cursor.state;
-            let mut delta = BoardDelta(0);
-            let mut castle = next.castle;
-            let mut halfmoves = next.halfmoves + 1;
+            let prev = self.cursor.state;
+            let mut castle = prev.castle;
 
-            delta.set_src_sq(src);
-            delta.set_dst_sq(dst);
+            delta.set_prev_halfmoves(prev.halfmoves);
+
+            if let Some(side) = trace.is_castle {
+                castle.lose(Castle::Short, prev.turn);
+                castle.lose(Castle::Long, prev.turn);
+                delta.set_src_sq(castle.king_start(prev.turn));
+                delta.set_dst_sq(castle.rook_target(side, prev.turn));
+                delta.set_is_castle(side);
+            } else {
+                delta.set_src_sq(src);
+                delta.set_dst_sq(dst);    
+
+                if let Some(side) = trace.loses_castle {
+                    castle.lose(side, prev.turn);
+                }
+    
+                if let Some(side) = trace.takes_castle {
+                    castle.lose(side, !prev.turn);
+                }
+
+                if let Some(capture) = trace.captures {
+                    delta.set_capture_pc(capture);
+                }
+    
+                if let Some(ep_sq) = prev.en_passant {
+                    delta.set_prev_ep_sq(ep_sq);
+                }
+    
+                if let Some(_) = trace.allows_en_passant {
+                    delta.set_is_double_push();
+                } else {
+                    if let Some(ep_capture_sq) = trace.is_capture_en_passant {
+                        delta.set_ep_capture_sq(ep_capture_sq);
+                    }
+                }
+            }
 
             if trace.is_king_move {
-                castle.lose(Castle::Long, next.turn);
-                castle.lose(Castle::Short, next.turn);
-    
-                if let Some(side) = trace.is_castle {
-                    castle.lose(side, next.turn);
-                    delta.set_src_sq(castle.king_start(next.turn));
-                    delta.set_dst_sq(castle.rook_target(side, next.turn));
-                    delta.set_flags(DeltaFlags::IS_CASTLE);
-                } else {
-                    if let Some(side) = trace.loses_castle {
-                        castle.lose(side, next.turn);
-                    }
-        
-                    if let Some(side) = trace.takes_castle {
-                        castle.lose(side, !next.turn);
-                    }
-                }
+                castle.lose(Castle::Long, prev.turn);
+                castle.lose(Castle::Short, prev.turn);
+            } 
 
-                if castle.rights != next.castle.rights {
-                    halfmoves = 0;
-                }
+            delta.set_castle_deltas(prev.castle.rights, castle.rights);
+            delta.set_prev_halfmoves(prev.halfmoves);
+
+            // if the cursor is not last, the move must either be 
+            // equal to the existing move (advancement) or create
+            // a branch if different. 
+            if !self.cursor_is_last() {
+                if self.get_next_delta().is_some_and(|del| {
+                    del.get_src_sq() == delta.get_src_sq() && 
+                    del.get_dst_sq() == delta.get_dst_sq()
+                }) {
+                    return Ok(
+                        PlaySuccess {
+                            branch: Some(self.branch(delta)),
+                            delta,
+                            trace,
+                        }
+                    )
+                } 
             } else {
-                if next.pieces.pawns.has(src) || trace.captures.is_some() {
-                    halfmoves = 0;
+                self.deltas.push(delta);
+
+                // todo: tick the clock
+            }
+
+            self.cursor.index += 1;
+            self.cursor.state = self.cursor.state.next(delta);
+            Ok(
+                PlaySuccess {
+                    branch: None,
+                    delta,
+                    trace
                 }
-            }
-
-            delta.set_castle_rights(castle.rights);
-            delta.set_capture_pc(trace.captures);
-            delta.set_prev_ep_sq(next.en_passant);
-            delta.set_prev_halfmoves(next.halfmoves);
-
-            if trace.requires_promotion {
-                delta.set_promote_pc(promote);
-                delta.add_flags(DeltaFlags::IS_PROMOTE);
-            }
-
-            todo!()
+            )
         } else {
             Err(PlayError::InvalidMove)
+        }
+    }
+
+    pub fn next(&mut self) -> Option<&Cursor> {
+        self.get_next_delta().map(|delta| {
+            self.cursor.state = self.cursor.state.next(delta);
+            self.cursor.index += 1;
+            &self.cursor
+        })
+    }
+
+    pub fn prev(&mut self) -> Option<&Cursor> {
+        if !self.cursor.index == 0 {
+            self.get_prev_delta().map(|delta| {
+                self.cursor.state = self.cursor.state.prev(delta);
+                self.cursor.index -= 1;
+                &self.cursor
+            })
+        } else {
+            None
         }
     }
 }
@@ -189,17 +303,26 @@ pub struct Cursor {
     /// The state at the cursor.
     pub state: BoardState,
 
-    /// The halfmove index of the cursor position.
+    /// The halfmove index of the cursor position, where the start position=0.
     pub index: usize,
 
     /// The amount of time white has, in milliseconds.
-    pub white_time: i64,
+    pub white_time: u32,
 
     /// The amount of time black has, in milliseconds.
-    pub black_time: i64,
+    pub black_time: u32,
 
     /// Whether the clock is ticking.
     pub clock_is_ticking: bool,
+}
+
+impl Cursor {
+    pub fn new(state: BoardState) -> Self {
+        Self {
+            state, 
+            ..Self::default()
+        }
+    }
 }
 
 impl Default for Cursor {
@@ -214,291 +337,6 @@ impl Default for Cursor {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub struct DeltaFlags(pub u16);
-
-bitflags::bitflags! {
-    impl DeltaFlags: u16 {
-        /// Whether the move is a capture en-passant.
-        const IS_EN_PASSANT = 1;
-
-        /// Whether the move is a double-push of a pawn,
-        /// which allows en-passant.
-        const IS_DOUBLE_PUSH = 1<<1;
-
-        /// If the position the move was played in had en passant,
-        /// then it is stored in this delta. 
-        const HAS_PREV_EP_SQ = 1<<2;
-
-        /// The move took longer than 163840 milliseconds, so the stored
-        /// time is in seconds rather than millis.
-        const TIME_SECONDS = 1<<3;
-
-        /// The move causes the halfmoves, which are used to check for
-        /// the fifty-move-rule, to reset.
-        const RESET_HALFMOVES = 1<<4;
-
-        /// Indicates the move is a capture. This also means
-        /// the piece type the pawn promoted to is stored in this delta,
-        /// accessible via BoardDelta::get_capture_pc.
-        const IS_CAPTURE = 1<<5;
-
-        /// Indicates the move is a pawn promotion. This also means
-        /// the piece type the pawn promoted to is stored in this delta.
-        /// Accessible via BoardDelta::get_promote_pc.
-        const IS_PROMOTE = 1<<6;
-
-        /// Indicates the move is castle.
-        const IS_CASTLE = 1<<7;
-
-        /// Indicates a hole was "pushed" onto the queue. This means 
-        /// the hole should be visible to the players, but not yet made 
-        /// available for usage.
-        const HOLE_PUSHED = 1<<8;
-
-        /// Indicates a hole was "popped" off the queue. This means the hole,
-        /// which was previously queued, should now be available for usage by
-        /// both parties.
-        const HOLE_POPPED = 1<<9;
-
-        /// Indicates a hole will be popped off the queue next turn.
-        /// This is used to determine what moves are defended next turn, so
-        /// the king is forced to move off of squares that will be defended.
-        const HOLE_WILL_POP = 1<<10;
-    }
-}
-
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub struct BoardDelta(u64);
-
-impl BoardDelta {
-    const FLAG_LEN: usize = 11;
-    const FLAG_OFFS: usize = 0;
-
-    const SRC_SQ_LEN: usize = 6;
-    const SRC_SQ_OFFS: usize = Self::FLAG_LEN;
-
-    const DST_SQ_LEN: usize = 6;
-    const DST_SQ_OFFS: usize = Self::SRC_SQ_OFFS + Self::SRC_SQ_LEN;
-
-    const TIME_LEN: usize = 13;
-    const TIME_OFFS: usize = Self::DST_SQ_OFFS + Self::DST_SQ_LEN;
-
-    const CAPTURE_LEN: usize = 3;
-    const CAPTURE_OFFS: usize = Self::TIME_OFFS + Self::TIME_LEN;
-
-    /// Can't promote to a King or Pawn, only 4 possibilities.
-    const PROMOTE_LEN: usize = 2;
-    const PROMOTE_OFFS: usize = Self::CAPTURE_OFFS + Self::CAPTURE_LEN;
-
-    const PREV_EP_SQ_LEN: usize = 6;
-    const PREV_EP_SQ_OFFS: usize = Self::PROMOTE_OFFS + Self::PROMOTE_LEN;
-
-    const CASTLE_LEN: usize = 4;
-    const CASTLE_OFFS: usize = Self::PREV_EP_SQ_OFFS + Self::PREV_EP_SQ_LEN;
-
-    const HOLE_SQ_LEN: usize = 6;
-    const HOLE_SQ_OFFS: usize = Self::CASTLE_OFFS + Self::CASTLE_LEN;
-
-    const HALFMOVES_LEN: usize = 6;
-    const HALFMOVES_OFFS: usize = Self::HOLE_SQ_OFFS + Self::HOLE_SQ_LEN;
-
-    #[inline(always)]
-    const fn extract(val: u64, len: usize, offs: usize) -> u64 {
-        (val >> offs) & ((1 << len) - 1)
-    }
-
-    #[inline(always)]
-    const fn deposit(val: u64, len: usize, offs: usize, item: u64) -> u64 {
-        (val & !(((1 << len) - 1) << offs)) | item << offs
-    }
-
-    pub fn get_flags(&self) -> DeltaFlags {
-        DeltaFlags(Self::extract(self.0, Self::FLAG_LEN, Self::FLAG_OFFS) as u16)
-    }
-
-    pub fn set_flags(&mut self, flags: DeltaFlags) {
-        self.0 = Self::deposit(self.0, Self::FLAG_LEN, Self::FLAG_OFFS, flags.0 as u64)
-    }
-
-    pub fn add_flags(&mut self, flags: DeltaFlags) {
-        self.0 = Self::deposit(self.0, Self::FLAG_LEN, Self::FLAG_OFFS, (flags | self.get_flags()).0 as u64)
-    }
-
-    pub fn get_src_sq(&self) -> Square {
-        Square::from_index(Self::extract(self.0, Self::SRC_SQ_LEN, Self::SRC_SQ_OFFS) as usize)
-    }
-
-    /// Set the source square.
-    /// If the move is castling, this should be the square of the king.
-    pub fn set_src_sq(&mut self, src: Square) {
-        self.0 = Self::deposit(self.0, Self::SRC_SQ_LEN, Self::SRC_SQ_OFFS, src.to_index() as u64);
-    }
-
-    /// Get the time, in milliseconds, the move took.
-    pub fn get_time(&self) -> u64 {
-        let t = Self::extract(self.0, Self::TIME_LEN, Self::TIME_OFFS);
-        if self.get_flags().contains(DeltaFlags::TIME_SECONDS) {
-            t * 1000
-        } else {
-            t * 10
-        }
-    }
-
-    /// Set the time, in milliseconds, the move took.
-    pub fn set_time(&mut self, mut time: u64) {
-        let mut flags = self.get_flags();
-        if time >= (1 << Self::TIME_LEN as u64) * 10 {
-            self.set_flags(flags | DeltaFlags::TIME_SECONDS);
-            time = time / 1000;
-        } else {
-            flags.remove(DeltaFlags::TIME_SECONDS);
-            self.set_flags(flags);
-            // in actuality, the stored time is in 1/100th of millisecond steps.
-            time = time / 10;
-        }
-        self.0 = Self::deposit(self.0, Self::TIME_LEN, Self::TIME_OFFS, time)
-    }
-
-    pub fn get_dst_sq(&self) -> Square {
-        Square::from_index(Self::extract(self.0, Self::DST_SQ_LEN, Self::DST_SQ_OFFS) as usize)
-    }
-
-    /// Set the destination square.
-    /// If the move is castling, this should be the square of the rook we are castling with.
-    pub fn set_dst_sq(&mut self, dst: Square) {
-        self.0 = Self::deposit(self.0, Self::DST_SQ_LEN, Self::DST_SQ_OFFS, dst.to_index() as u64);
-    }
-
-    /// Get the piece that was captured.
-    pub fn get_capture_pc(&self) -> Option<Piece> {
-        self.get_flags().contains(DeltaFlags::IS_CAPTURE).then(|| {
-            Piece::from_u8(Self::extract(self.0, Self::CAPTURE_LEN, Self::CAPTURE_OFFS) as u8)
-        })
-    }
-
-    /// Set the piece that was captured.
-    pub fn set_capture_pc(&mut self, pc: Option<Piece>) {
-        if pc.is_some() {
-            self.set_flags(self.get_flags() | DeltaFlags::IS_CAPTURE);
-            self.0 = Self::deposit(self.0, Self::CAPTURE_LEN, Self::CAPTURE_OFFS, pc.map(|pc| pc.to_u8() as u64).unwrap_or(0));
-        } else {
-            let mut flags = self.get_flags();
-            flags.remove(DeltaFlags::IS_CAPTURE);
-            self.set_flags(flags);
-        }
-    }
-
-    /// Get the piece that the pawn promoted to, if relevant.
-    pub fn get_promote_pc(&self) -> Option<Piece> {
-        self.get_flags().contains(DeltaFlags::IS_PROMOTE).then(|| {
-            Piece::from_u8(Self::extract(self.0, Self::PROMOTE_LEN, Self::PROMOTE_OFFS) as u8)
-        })
-    }
-
-    pub fn set_promote_pc(&mut self, pc: Option<Piece>) {
-        if pc.is_some() {
-            self.set_flags(self.get_flags() | DeltaFlags::IS_PROMOTE);
-            self.0 = Self::deposit(self.0, Self::PROMOTE_LEN, Self::PROMOTE_OFFS, pc.map(|pc| pc.to_u8() as u64).unwrap_or(0));
-        } else {
-            let mut flags = self.get_flags();
-            flags.remove(DeltaFlags::IS_PROMOTE);
-            self.set_flags(flags);
-        }
-    }
-
-    /// Get the en-passant square in the position the move was played.
-    pub fn get_prev_ep_sq(&self) -> Option<Square> {
-        self.get_flags().contains(DeltaFlags::IS_DOUBLE_PUSH).then(|| {
-            Square::from_index(Self::extract(self.0, Self::PREV_EP_SQ_LEN, Self::PREV_EP_SQ_OFFS) as usize)
-        })
-    }
-
-    pub fn set_prev_ep_sq(&mut self, sq: Option<Square>) {
-        if sq.is_some() {
-            self.set_flags(self.get_flags() | DeltaFlags::IS_DOUBLE_PUSH);
-            self.0 = Self::deposit(self.0, Self::PREV_EP_SQ_LEN, Self::PREV_EP_SQ_OFFS, sq.map(|pc| pc.to_index() as u64).unwrap_or(0));
-        } else {
-            let mut flags = self.get_flags();
-            flags.remove(DeltaFlags::IS_DOUBLE_PUSH);
-            self.set_flags(flags);
-        }
-    }
-
-    /// Get the castling rights in the RESULTING position.
-    pub fn get_castle_rights(&self) -> u8 {
-        Self::extract(self.0, Self::CASTLE_LEN, Self::CASTLE_OFFS) as u8
-    }
-
-    pub fn set_castle_rights(&mut self, rights: u8) {
-        self.0 = Self::deposit(self.0, Self::CASTLE_LEN, Self::CASTLE_OFFS, rights as u64)
-    }
-
-    /// Get the square of a queued wormhole placement.
-    pub fn get_hole_square(&self) -> Option<Square> {
-        let flags = self.get_flags();
-        (flags.contains(DeltaFlags::HOLE_PUSHED) || flags.contains(DeltaFlags::HOLE_POPPED)) .then(|| {
-            Square::from_index(Self::extract(self.0, Self::HOLE_SQ_LEN, Self::HOLE_SQ_OFFS) as usize)
-        })
-    }
-
-    /// Set the square of a queued wormhole placement.
-    pub fn set_pushed_hole(&mut self, sq: Option<Square>) {
-        let mut flags = self.get_flags();
-        if sq.is_some() {
-            self.set_flags(flags | DeltaFlags::HOLE_PUSHED);
-            self.0 = Self::deposit(
-                self.0, Self::HOLE_SQ_LEN, Self::HOLE_SQ_OFFS, 
-                sq.map(|s| s.to_index() as u64).unwrap_or(0)
-            );
-        } else {
-            flags.remove(DeltaFlags::HOLE_PUSHED);
-            flags.remove(DeltaFlags::HOLE_POPPED);
-            self.set_flags(flags);
-        }
-    }
-
-    /// Set the square of the wormhole that was just popped.
-    pub fn set_popped_hole(&mut self, sq: Option<Square>) {
-        let mut flags = self.get_flags();
-        if sq.is_some() {
-            self.set_flags(flags | DeltaFlags::HOLE_POPPED);
-            self.0 = Self::deposit(
-                self.0, Self::HOLE_SQ_LEN, Self::HOLE_SQ_OFFS, 
-                sq.map(|s| s.to_index() as u64).unwrap_or(0)
-            );
-        } else {
-            flags.remove(DeltaFlags::HOLE_PUSHED);
-            flags.remove(DeltaFlags::HOLE_POPPED);
-            self.set_flags(flags);
-        }
-    }
-
-    pub fn get_prev_halfmoves(&self) -> u8 {
-        Self::extract(self.0, Self::HALFMOVES_LEN, Self::HALFMOVES_OFFS) as u8
-    }
-
-    pub fn set_prev_halfmoves(&mut self, halfmoves: u8) {
-        self.0 = Self::deposit(self.0, Self::HALFMOVES_LEN, Self::HALFMOVES_OFFS, halfmoves as u64);
-    }
-
-    pub fn castle_side(&self) -> Option<Castle> {
-        self.get_flags().contains(DeltaFlags::IS_CASTLE).then(|| {
-            if self.get_src_sq() > self.get_dst_sq() {
-                Castle::Long
-            } else {
-                Castle::Short
-            }
-        })
-    }
-}
-
-impl Default for BoardDelta {
-    fn default() -> Self {
-        Self(0)
-    }
-}
-
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub struct Branch {
     /// The ID of the parent ChessGame, which may also be a branch.
@@ -506,4 +344,11 @@ pub struct Branch {
 
     /// The halfmove index in the parent that was branched from.
     pub src_index: usize,
+
+    /// The move that took place to reach
+    /// the start position in this branch.
+    pub delta: BoardDelta,
+
+    /// The halfmove index of the source position in the parent.
+    pub src_halfmoves: u16,
 }

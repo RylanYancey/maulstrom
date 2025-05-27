@@ -1,5 +1,5 @@
 
-use crate::{board::BitBoard, cached::*, delta::*, castle::{can_castle, Castle}, game::BoardDelta, pieces::Piece, square::Square, state::BoardState, team::Team};
+use crate::{board::BitBoard, cached::*, ray::*, castle::{can_castle, Castle}, pieces::Piece, square::Square, state::BoardState, team::Team};
 
 #[derive(Copy, Clone)]
 pub struct MoveTrace {

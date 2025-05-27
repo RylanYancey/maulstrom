@@ -28,5 +28,6 @@ pub mod prelude {
         settings::{GameSettings, ClockSettings, WormholeSettings, WormholeSpawnMode},
         trace::MoveTrace,
         end::EndCondition,
+        team::Team,
     };
 }

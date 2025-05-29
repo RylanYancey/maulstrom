@@ -4,6 +4,8 @@
 use std::fmt::{self, Write};
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
+use crate::team::Team;
+
 use super::square::Square;
 
 #[derive(Copy, Clone, Eq, PartialEq, Default)]
@@ -124,6 +126,15 @@ impl BitBoard {
             Self(self.0 | tx.0)
         } else {
             *self
+        }
+    }
+
+    pub const fn pawn_moves(&self, team: Team) -> BitBoard {
+        let pr = self.0 & !0x8080808080808080;
+        let pl = self.0 & !0x0101010101010101;
+        match team {
+            Team::White => BitBoard((pl << 7) | (pr << 9)),
+            Team::Black => BitBoard((pl >> 9) | (pr >> 7))
         }
     }
 }

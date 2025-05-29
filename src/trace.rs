@@ -164,7 +164,7 @@ pub fn trace(state: &BoardState, src: Square, dst: Square) -> Option<MoveTrace> 
         }
     }
 
-    let blockable = crate::blockable::blockable(state, src);
+    let blockable = crate::blockable::blockable(src, state);
     if !blockable.has(dst) {
         return None;
     }

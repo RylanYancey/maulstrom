@@ -32,7 +32,7 @@ pub fn compute(state: &BoardState, sq: Square) -> BitBoard {
         return moves
     }
 
-    let blockable = crate::blockable::blockable(state, sq);
+    let blockable = crate::blockable::blockable(sq, state);
 
     if (state.pieces.get(Piece::Pawn, team) | ext).has(sq) {
         return blockable & pawn(team, sq, holes, on_team, occupied, state.en_passant);

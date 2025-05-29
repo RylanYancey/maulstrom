@@ -1,22 +1,24 @@
 
-pub mod board;
+pub mod slide_table;
+pub mod blockable;
+pub mod settings;
+pub mod defense;
+pub mod compute;
+pub mod castle;
+pub mod pieces;
 pub mod square;
 pub mod cached;
-pub mod defense;
-pub mod blockable;
-pub mod compute;
-pub mod settings;
-pub mod team;
+pub mod board;
 pub mod state;
-pub mod pieces;
-pub mod castle;
-pub mod ray;
+pub mod trace;
+pub mod delta;
+pub mod magic;
+pub mod team;
 pub mod init;
 pub mod game;
-pub mod trace;
+pub mod ray;
 pub mod end;
 pub mod rng;
-pub mod delta;
 
 pub mod prelude {
     pub use crate::{

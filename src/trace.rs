@@ -200,9 +200,9 @@ pub fn trace(state: &BoardState, src: Square, dst: Square) -> Option<MoveTrace> 
     }
 
     if state.pieces.get(Piece::Pawn, team).intersects(sqs) {
-        let requires_promotion = dsts.intersects(BitBoard::new().with_rank((!team).back_rank()));
+        let requires_promotion = dsts.intersects(BitBoard::new().with_rank_u8((!team).back_rank_u8()));
         let dir = team.pawn_dir();
-        let pawn_rank = team.pawn_rank();
+        let pawn_rank = team.pawn_rank_u8();
 
         if holes.has(src) {
             for out_sq in holes {
@@ -224,18 +224,18 @@ pub fn trace(state: &BoardState, src: Square, dst: Square) -> Option<MoveTrace> 
                     } else {
                         if let Some(ep_sq) = state.en_passant {
                             if dsts.has(ep_sq) {
-                                let ep_pawn = ep_sq + ((!state.turn).pawn_dir(), 0);
-
-                                return Some(
-                                    MoveTrace {
-                                        route: (out_sq != src).then(|| (src, out_sq)),
-                                        is_capture_en_passant: Some(ep_pawn),
-                                        captures,
-                                        takes_castle,
-                                        requires_promotion,
-                                        ..MoveTrace::default()
-                                    }
-                                )
+                                if let Some(ep_pawn) = ep_sq.next(((!state.turn).pawn_dir(), 0)) {
+                                    return Some(
+                                        MoveTrace {
+                                            route: (out_sq != src).then(|| (src, out_sq)),
+                                            is_capture_en_passant: Some(ep_pawn),
+                                            captures,
+                                            takes_castle,
+                                            requires_promotion,
+                                            ..MoveTrace::default()
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -246,11 +246,10 @@ pub fn trace(state: &BoardState, src: Square, dst: Square) -> Option<MoveTrace> 
                 return None;
             }
 
-            if holes.intersects(BitBoard::new().with_rank(pawn_rank)) {
+            if holes.intersects(BitBoard::new().with_rank_u8(pawn_rank)) {
                 for out_sq in holes {
-                    let one = out_sq + (dir, 0);
-                    if !occupied.has(one) {
-                        if one.is_in_bounds() && dsts.has(one) {
+                    if let Some(one) = out_sq.next((dir, 0)) && !occupied.has(one) {
+                        if dsts.has(one) {
                             return Some(
                                 MoveTrace {
                                     route: (out_sq != src).then(|| (src, out_sq)),
@@ -259,24 +258,23 @@ pub fn trace(state: &BoardState, src: Square, dst: Square) -> Option<MoveTrace> 
                                 }
                             )
                         }
-
-                        let two = one + (dir, 0);
-                        if two.is_in_bounds() && dsts.has(two) {
-                            return Some(
-                                MoveTrace {
-                                    route: (out_sq != src).then(|| (src, out_sq)),
-                                    requires_promotion,
-                                    allows_en_passant: Some(one),
-                                    ..MoveTrace::default()
-                                }
-                            )
+                        if let Some(two) = one.next((dir, 0)) && !occupied.has(two) {
+                            if dsts.has(two) {
+                                return Some(
+                                    MoveTrace {
+                                        route: (out_sq != src).then(|| (src, out_sq)),
+                                        requires_promotion,
+                                        allows_en_passant: Some(one),
+                                        ..MoveTrace::default()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
             } else {
                 for out_sq in holes {
-                    let one = src + (dir, 0);
-                    if one.is_in_bounds() && dsts.has(one) {
+                    if let Some(one) = out_sq.next((dir, 0)) && dsts.has(one) {
                         return Some(
                             MoveTrace {
                                 route: (out_sq != src).then(|| (src, out_sq)),
@@ -288,9 +286,7 @@ pub fn trace(state: &BoardState, src: Square, dst: Square) -> Option<MoveTrace> 
                 }
             }
         } else {
-            let one = src + (dir, 0);
-
-            if one.is_in_bounds() && !occupied.has(one) {
+            if let Some(one) = src.next((dir, 0)) && !occupied.has(one) {
                 if dsts.has(one) {
                     return Some(
                         MoveTrace {
@@ -300,10 +296,8 @@ pub fn trace(state: &BoardState, src: Square, dst: Square) -> Option<MoveTrace> 
                     )
                 }
 
-                if src.rank == pawn_rank {
-                    let two = one + (dir, 0);
-
-                    if two.is_in_bounds() && dsts.has(two) {
+                if src.rank_u8() == pawn_rank {
+                    if let Some(two) = one.next((dir, 0)) && dsts.has(two) {
                         return Some(
                             MoveTrace {
                                 allows_en_passant: Some(one),
@@ -315,9 +309,7 @@ pub fn trace(state: &BoardState, src: Square, dst: Square) -> Option<MoveTrace> 
 
                     if holes.has(one) {
                         for out_sq in holes.without(one) {
-                            let out_one = out_sq + (dir, 0);
-
-                            if dsts.has(out_one) {
+                            if let Some(one2) = out_sq.next((dir, 0)) && dsts.has(one2) {
                                 return Some(
                                     MoveTrace {
                                         route: Some((one, out_sq)),

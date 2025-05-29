@@ -114,21 +114,18 @@ fn pawn(
     let dir = team.pawn_dir();
 
     if holes.has(sq) {
-        if holes.intersects(BitBoard::new().with_rank(team.pawn_rank())) {
+        if holes.intersects(BitBoard::new().with_rank_u8(team.pawn_rank_u8())) {
             for out_sq in holes {
-                let one = out_sq + (dir, 0);
-                if !occupied.has(one) {
+                if let Some(one) = out_sq.next((dir, 0)) && !occupied.has(one) {
                     moves.set(one);
-                    let two = out_sq + (dir, 0);
-                    if !occupied.has(two) {
+                    if let Some(two) = one.next((dir, 0)) && !occupied.has(two) {
                         moves.set(two);
                     }
                 }
             }
         } else {
             for out_sq in holes {
-                let one = out_sq + (dir, 0);
-                if !occupied.has(one) {
+                if let Some(one) = out_sq.next((dir, 0)) && !occupied.has(one) {
                     moves.set(one);
                 }
             }
@@ -136,21 +133,17 @@ fn pawn(
 
         moves &= !holes;
     } else {
-        let one = sq + (dir, 0);
-        if !occupied.has(one) {
+        if let Some(one) = sq.next((dir, 0)) && !occupied.has(one) {
             moves.set(one);
-            
-            if sq.rank == team.pawn_rank() {
-                let two = sq + (dir, 0);
-                if !occupied.has(two) {
+            if sq.rank() == team.pawn_rank() {
+                if let Some(two) = one.next((dir, 0)) && !occupied.has(two) {
                     moves.set(two);
                 }
 
                 if holes.has(one) {
                     for out_sq in holes {
-                        let one = out_sq + (dir, 0);
-                        if !occupied.has(one) {
-                            moves |= one;
+                        if let Some(one) = out_sq.next((dir, 0)) && !occupied.has(one) {
+                            moves.set(one);
                         }
                     }
                 }

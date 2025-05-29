@@ -21,7 +21,7 @@ impl WyRand {
         Self { seed: getrandom::u64().expect("Failed to generate seed from entropy.") }
     }
 
-    pub fn rand(&mut self) -> u64 {
+    pub fn next(&mut self) -> u64 {
         const P0: u64 = 0xa076_1d64_78bd_642f;
         const P1: u64 = 0xe703_7ed1_a0b4_28db;
         self.seed = self.seed.wrapping_add(P0);
@@ -30,7 +30,7 @@ impl WyRand {
     }
 
     pub fn range(&mut self, range: Range<usize>) -> u64 {
-        (self.rand() % (range.end as u64 - range.start as u64)) + range.start as u64
+        (self.next() % (range.end as u64 - range.start as u64)) + range.start as u64
     }
 
     pub fn shuffle<T>(&mut self, slice: &mut [T]) {

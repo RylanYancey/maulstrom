@@ -59,9 +59,9 @@ impl BoardState {
             // update ep square.
             if delta.is_double_push() {
                 if self.wormholes.has(dst) {
-                    next.en_passant = Some(src + (self.turn.pawn_dir(), 0))
+                    next.en_passant = src.next((self.turn.pawn_dir(), 0));
                 } else {
-                    next.en_passant = Some(dst + (-self.turn.pawn_dir(), 0))
+                    next.en_passant = dst.next((-self.turn.pawn_dir(), 0));
                 }
             }
         }
@@ -152,6 +152,21 @@ impl BoardState {
         }
 
         prev
+    }
+
+    pub fn checkable_king(&self) -> Option<Square> {
+        let rel = self.pieces.kings & self.pieces.on_team(self.turn);
+        (rel.count() == 1).then(|| {
+            Square::from_index(rel.0.trailing_zeros() as usize)
+        })
+    }
+
+    pub fn next_wormholes(&self) -> BitBoard {
+        if let Some(hole_sq) = self.next_hole && self.hole_in_1 {
+            self.wormholes.with(hole_sq)
+        } else {
+            self.wormholes
+        }
     }
 }
 

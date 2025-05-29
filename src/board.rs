@@ -76,19 +76,19 @@ impl BitBoard {
         self.0 & sq.to_mask() != 0 
     }
 
-    pub const fn set_rank(&mut self, rank: i8) {
+    pub const fn set_rank_u8(&mut self, rank: u8) {
         self.0 |= 0xFF << (rank * 8);
     }
 
-    pub const fn with_rank(self, rank: i8) -> Self {
+    pub const fn with_rank_u8(self, rank: u8) -> Self {
         Self(self.0 | (0xFF << (rank * 8)))
     }
 
-    pub const fn set_file(&mut self, file: i8) {
+    pub const fn set_file_u8(&mut self, file: u8) {
         self.0 |= 0x0101010101010101 << file
     }
 
-    pub const fn with_file(&mut self, file: i8) -> Self {
+    pub const fn with_file_u8(&mut self, file: u8) -> Self {
         Self(self.0 | (0x0101010101010101 << file))
     }
 
@@ -118,6 +118,14 @@ impl BitBoard {
     pub const fn indices(&self) -> BitBoardIndices {
         BitBoardIndices(self.0)
     }
+
+    pub const fn transmit(&self, tx: Self) -> Self {
+        if self.intersects(tx) {
+            Self(self.0 | tx.0)
+        } else {
+            *self
+        }
+    }
 }
 
 impl From<u64> for BitBoard {
@@ -132,9 +140,9 @@ impl From<Square> for BitBoard {
     }
 }
 
-impl From<(i8, i8)> for BitBoard {
-    fn from(value: (i8, i8)) -> Self {
-        Self::from(Square::new(value.0, value.1))
+impl From<(u8, u8)> for BitBoard {
+    fn from(value: (u8, u8)) -> Self {
+        Self::from(Square::new(value.0.into(), value.1.into()))
     }
 }
 

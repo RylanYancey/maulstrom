@@ -69,9 +69,9 @@ impl Pieces {
             queens: BitBoard::new(),
             kings: BitBoard::new(),
             rooks: BitBoard::new(),
-            pawns: BitBoard::new().with_rank(1).with_rank(6),
-            white: BitBoard::new().with_rank(1),
-            black: BitBoard::new().with_rank(6),
+            pawns: BitBoard::new().with_rank_u8(1).with_rank_u8(6),
+            white: BitBoard::new().with_rank_u8(1),
+            black: BitBoard::new().with_rank_u8(6),
         }
     }
 
@@ -177,9 +177,9 @@ impl Pieces {
     }
 
     pub fn setup_from_file(&mut self, piece: Piece, file: u8) {
-        let sqs = BitBoard::new() | (0, file as i8) | (7, file as i8);
-        self.white |= (0, file as i8);
-        self.black |= (7, file as i8);
+        let sqs = BitBoard::new() | (0, file) | (7, file);
+        self.white |= (0, file);
+        self.black |= (7, file);
         *match piece {
             Piece::Bishop => &mut self.bishops,
             Piece::Knight => &mut self.knights,

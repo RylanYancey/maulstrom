@@ -2,135 +2,213 @@
 //! Struct for representing squares on a chess board.
 
 use std::{cmp::Ordering, mem, ops::{Add, BitOr}};
-use crate::board::BitBoard;
+use crate::{board::BitBoard, cached::*, ray::Ray, team::Team};
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct Square {
-    pub rank: i8,
-    pub file: i8,
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Ord, PartialOrd)]
+pub enum Rank {
+    First,
+    Second,
+    Third,
+    Fourth,
+    Fifth,
+    Sixth,
+    Seventh,
+    Eighth,
 }
 
-impl Square {
-    pub const ZERO: Self = Self { rank: 0, file: 0 };
+impl Rank {
+    pub const fn to_u8(&self) -> u8 {
+        match self {
+            Self::First => 0,
+            Self::Second => 1,
+            Self::Third => 2,
+            Self::Fourth => 3,
+            Self::Fifth => 4,
+            Self::Sixth => 5,
+            Self::Seventh => 6,
+            Self::Eighth => 7,
+        }
+    }
+}
 
-    pub const fn new(rank: i8, file: i8) -> Self {
-        Self { rank, file }
+impl From<u8> for Rank {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Self::First,
+            1 => Self::Second,
+            2 => Self::Third,
+            3 => Self::Fourth,
+            4 => Self::Fifth,
+            5 => Self::Sixth,
+            6 => Self::Seventh,
+            _ => Self::Eighth,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Ord, PartialOrd)]
+pub enum File {
+    A, B, C, D, E, F, G, H
+}
+
+impl File {
+    pub const fn to_u8(&self) -> u8 {
+        match self {
+            Self::A => 0,
+            Self::B => 1,
+            Self::C => 2,
+            Self::D => 3,
+            Self::E => 4,
+            Self::F => 5,
+            Self::G => 6,
+            Self::H => 7, 
+        }
+    }
+
+    pub fn from_i8(n: i8) -> Option<Self> {
+        if n >= 0 && n < 8 {
+            Some(Self::from(n as u8))
+        } else {
+            None
+        }
+    }
+}
+
+impl From<u8> for File {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Self::A,
+            1 => Self::B,
+            2 => Self::C,
+            3 => Self::D,
+            4 => Self::E,
+            5 => Self::F,
+            6 => Self::G,
+            _ => Self::H
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Ord, PartialOrd)]
+pub struct Square(u8);
+
+impl Square {
+    pub const ZERO: Self = Self (0);
+
+    pub const fn new(rank: Rank, file: File) -> Self {
+        Self((rank.to_u8() << 3) | file.to_u8())
+    }
+
+    pub fn rank(&self) -> Rank {
+        (self.0 >> 3).into()
+    }
+
+    pub fn file(&self) -> File {
+        (self.0 & 0b111).into()
+    }
+
+    pub const fn rank_u8(&self) -> u8 {
+        self.0 >> 3
+    }
+
+    pub const fn file_u8(&self) -> u8 {
+        self.0 & 0b111
     }
 
     pub const fn to_mask(&self) -> u64 {
-        1 << self.to_index() as u64
+        1 << self.0 as u64
     }
 
     pub const fn to_index(&self) -> usize {
-        (self.file | self.rank << 3) as usize
+        self.0 as usize
     }
 
     pub const fn from_index(i: usize) -> Self {
-        Self {
-            rank: (i >> 3) as i8,
-            file: (i & 7) as i8,
-        }
+        Self(i as u8)
     }
 
-    pub const fn shares_orthogonal(&self, rhs: Self) -> bool {
-        self.rank == rhs.rank || self.file == rhs.file
-    }
-
-    pub const fn shares_diagonal(&self, rhs: Self) -> bool {
-        (self.rank - rhs.rank).abs() == (self.file - rhs.file).abs()
-    }
-
-    /// Get a mask of squares between self and rhs.
+    /// Squares between self and rhs, including rhs and excluding self.
     pub const fn between(&self, rhs: Self) -> BitBoard {
-        let mut i = self.file | (self.rank << 3);
-        let mut j = rhs.file | (rhs.rank << 3);
-        if i == j { return BitBoard(0) }
-        if i > j { mem::swap(&mut i, &mut j) }
+        BitBoard(crate::cached::BETWEEN_EXCLUSIVE[self.to_index()][rhs.to_index()])
+    }
 
-        let shared = if self.rank == rhs.rank {
-            0xFF << (self.rank << 3)
-        } else if self.file == rhs.file {
-            0x0101010101010101 << self.file
-        } else if self.rank - self.file == rhs.rank - rhs.file {
-            let s = self.rank - self.file;
-            if s > 0 { 0x8040201008040201 >> s }
-            else { 0x8040201008040201 << s.abs() }
-        } else if self.rank + self.file == rhs.rank + rhs.file {
-            let s = self.rank - (7 - self.file);
-            if s > 0 { 0x102040810204080 << s } 
-            else { 0x102040810204080 >> s.abs() }
+    pub fn pawn_captures(&self, team: Team) -> BitBoard {
+        match team {
+            Team::White => BitBoard(crate::cached::WHITE_PAWN_ATTACKS[self.to_index()]),
+            Team::Black => BitBoard(crate::cached::BLACK_PAWN_ATTACKS[self.to_index()])
+        }
+    }
+
+    pub const fn next(&self, delta: (i8, i8)) -> Option<Self> {
+        let rank = self.rank_u8() as i8 + delta.0;
+        let file = self.file_u8() as i8 + delta.1;
+        if rank >= 0 && rank < 8 && file >= 0 && file < 8 {
+            Some(Self(((rank as u8) << 3) | file as u8))
         } else {
-            return BitBoard::new()
-        };
-
-        let a = !0u64 << (i + 1);
-        let b = !0u64 >> (64 - j);
-        BitBoard(shared & a & b)
+            None
+        }
     }
 
-    /// Get a mask of the squares that share a diagonal with this square, inclusively.
-    pub const fn diagonals(&self) -> BitBoard {
-        const RGT: u64 = 0x8040201008040201;
-        const LFT: u64 = 0x102040810204080;
-        let rs = self.rank - self.file;
-        let ra = rs.abs();
-        let mut ri = ra << 3;
-        if rs < 0 { ri = 64 - ri }
-        let mut rm = (1 << ri) - 1;
-        if rs > 0 { rm = !rm }
-        let mut rg = RGT;
-        if rs > 0 { rg = (rg >> ra) & rm }
-        if rs < 0 { rg = (rg << ra) & rm }
-        let ls = self.rank - (7 - self.file);
-        let la = ls.abs();
-        let mut li = la << 3;
-        if ls < 0 { li = 63 - li }
-        if ls > 0 { li += 1}
-        let mut lm = (1 << li) - 1;
-        if ls > 0 { lm = !lm }
-        let mut lg = LFT;
-        if ls > 0 { lg = (lg << la) & lm }
-        if ls < 0 { lg = (lg >> la) & lm }
-        BitBoard(rg | lg)
+    pub fn king_moves(&self) -> BitBoard {
+        BitBoard(crate::cached::KING_MOVES[self.0 as usize])
     }
 
-    /// Get a mask of the squares that share an orthogonal with this square, inclusively.
-    pub const fn orthogonals(&self) -> BitBoard {
-        BitBoard((0xFF << (self.rank << 3)) | (0x0101010101010101 << self.file))
+    pub fn knight_moves(&self) -> BitBoard {
+        BitBoard(crate::cached::KNIGHT_MOVES[self.0 as usize])
     }
 
-    /// Check whether the square is within the bounds of a 
-    /// standard 8x8 chess board.
-    pub const fn is_in_bounds(&self) -> bool {
-        (self.rank as u8 | self.file as u8) < 8
+    pub fn rook_moves(&self, occupied: BitBoard) -> BitBoard {
+        crate::magic::get_rook_moves(*self, occupied)
+    }
+
+    pub fn bishop_moves(&self, occupied: BitBoard) -> BitBoard {
+        crate::magic::get_bishop_moves(*self, occupied)
+    }
+
+    pub const fn ortho_ray(&self, rhs: Self) -> Option<Ray> {
+        let i = self.0 as usize;
+        let j = rhs.to_mask();
+        if RAY_POS_ZERO_EXCLUSIVE[i] & j != 0 { return Some(Ray::PosZero) }
+        if RAY_NEG_ZERO_EXCLUSIVE[i] & j != 0 { return Some(Ray::NegZero) }
+        if RAY_ZERO_NEG_EXCLUSIVE[i] & j != 0 { return Some(Ray::ZeroNeg) }
+        if RAY_ZERO_POS_EXCLUSIVE[i] & j != 0 { return Some(Ray::ZeroPos) }
+        None
+    }
+
+    pub const fn diag_ray(&self, rhs: Self) -> Option<Ray> {
+        let i = self.0 as usize;
+        let j = rhs.to_mask();
+        if RAY_POS_POS_EXCLUSIVE[i] & j != 0 { return Some(Ray::PosPos); }
+        if RAY_NEG_NEG_EXCLUSIVE[i] & j != 0 { return Some(Ray::NegNeg); }
+        if RAY_NEG_POS_EXCLUSIVE[i] & j != 0 { return Some(Ray::NegPos); }
+        if RAY_POS_NEG_EXCLUSIVE[i] & j != 0 { return Some(Ray::PosNeg); }
+        None
+    }
+
+    pub const fn ray(&self, rhs: Self) -> Option<Ray> {
+        let i = self.0 as usize;
+        let j = rhs.to_mask();
+        if RAY_POS_ZERO_EXCLUSIVE[i] & j != 0 { return Some(Ray::PosZero) }
+        if RAY_NEG_ZERO_EXCLUSIVE[i] & j != 0 { return Some(Ray::NegZero) }
+        if RAY_ZERO_NEG_EXCLUSIVE[i] & j != 0 { return Some(Ray::ZeroNeg) }
+        if RAY_ZERO_POS_EXCLUSIVE[i] & j != 0 { return Some(Ray::ZeroPos) }
+        if RAY_POS_POS_EXCLUSIVE[i] & j != 0 { return Some(Ray::PosPos); }
+        if RAY_NEG_NEG_EXCLUSIVE[i] & j != 0 { return Some(Ray::NegNeg); }
+        if RAY_NEG_POS_EXCLUSIVE[i] & j != 0 { return Some(Ray::NegPos); }
+        if RAY_POS_NEG_EXCLUSIVE[i] & j != 0 { return Some(Ray::PosNeg); }
+        None
     }
 }
 
-impl From<(i8, i8)> for Square {
-    fn from(value: (i8, i8)) -> Self {
+impl From<(u8, u8)> for Square {
+    fn from(value: (u8, u8)) -> Self {
+        Self::new(value.0.into(), value.1.into())
+    }
+}
+
+impl From<(Rank, File)> for Square {
+    fn from(value: (Rank, File)) -> Self {
         Self::new(value.0, value.1)
-    }
-}
-
-impl Add for Square {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            rank: self.rank + rhs.rank,
-            file: self.file + rhs.file,
-        }
-    }
-}
-
-impl Add<(i8, i8)> for Square {
-    type Output = Self;
-
-    fn add(self, rhs: (i8, i8)) -> Self::Output {
-        Self {
-            rank: self.rank + rhs.0,
-            file: self.file + rhs.1,
-        }
     }
 }
 
@@ -142,16 +220,59 @@ impl BitOr<Square> for Square {
     }
 }
 
-impl PartialOrd for Square {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.rank != other.rank { self.rank.partial_cmp(&other.rank) }
-        else { self.file.partial_cmp(&other.file) }
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::{Square, BitBoard};
 
-impl Ord for Square {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+    #[test]
+    fn king_moves() {
+        const KING_DELTAS: [(i8, i8); 8] = [
+            (-1, -1),
+            (-1,  0),
+            (-1,  1),
+            ( 0, -1),
+            ( 0,  1),
+            ( 1, -1),
+            ( 1,  0),
+            ( 1,  1)
+        ];
+
+        for square in BitBoard(!0) {
+            let mut expected = BitBoard::new();
+            for delta in KING_DELTAS {
+                if let Some(next) = square.next(delta) {
+                    expected |= next;
+                }
+            }
+
+            assert_eq!(square.king_moves(), expected, "{square:?}");
+        }
     }
+
+    #[test]
+    fn knight_moves() {
+        const KNIGHT_DELTAS: [(i8, i8); 8] = [
+            (-1, -2),
+            ( 1, -2),
+            (-1,  2),
+            ( 1,  2),
+            (-2, -1),
+            (-2,  1),
+            ( 2, -1),
+            ( 2,  1)
+        ];
+    
+        for square in BitBoard(!0) {
+            let mut expected = BitBoard::new();
+            for delta in KNIGHT_DELTAS {
+                if let Some(next) = square.next(delta) {
+                    expected |= next;
+                }
+            }
+    
+            assert_eq!(square.knight_moves(), expected, "{square:?}");
+        }
+    }
+    
 }
 

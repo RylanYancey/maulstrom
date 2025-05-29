@@ -1,4 +1,4 @@
-use crate::{board::BitBoard, cached::BETWEEN_EXCLUSIVE, square::Square, team::Team};
+use crate::{board::BitBoard, cached::BETWEEN_EXCLUSIVE, square::{File, Rank, Square}, team::Team};
 
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -54,42 +54,42 @@ impl CastleRights {
     }
 
     /// Set the rook start file for this side.
-    pub const fn set_rook(&mut self, side: Castle, file: u8) {
+    pub fn set_rook(&mut self, side: Castle, file: u8) {
         match side {
-            Castle::Long => self.settings.long_column = file,
-            Castle::Short => self.settings.short_column = file,
+            Castle::Long => self.settings.long_file = file.into(),
+            Castle::Short => self.settings.short_file = file.into(),
         }
     }
 
     /// Get the start square of the rook on this side on this team.
     pub fn rook_start(&self, side: Castle, team: Team) -> Square {
         match side {
-            Castle::Short => (team.back_rank(), self.settings.short_column as i8),
-            Castle::Long => (team.back_rank(), self.settings.long_column as i8),
+            Castle::Short => (team.back_rank(), self.settings.short_file),
+            Castle::Long => (team.back_rank(), self.settings.long_file),
         }.into()
     }
 
     /// Get the square the rook would move to if castle occurred.
     pub fn rook_target(&self, side: Castle, team: Team) -> Square {
         match side {
-            Castle::Short => (team.back_rank(), 5),
-            Castle::Long => (team.back_rank(), 3),
+            Castle::Short => (team.back_rank(),File::F),
+            Castle::Long => (team.back_rank(), File::D),
         }.into()
     }
 
     pub fn set_king(&mut self, file: u8) {
-        self.settings.king_column = file;
+        self.settings.king_file = file.into();
     }
 
     pub fn king_start(&self, team: Team) -> Square {
-        Square::new(team.back_rank(), self.settings.king_column as i8)
+        Square::new(team.back_rank(), self.settings.king_file)
     }
 
     /// Get the square the king would move to if castle occurred.
     pub fn king_target(&self, side: Castle, team: Team) -> Square {
         match side {
-            Castle::Short => (team.back_rank(), 6),
-            Castle::Long => (team.back_rank(), 2),
+            Castle::Short => (team.back_rank(), File::G),
+            Castle::Long => (team.back_rank(), File::C),
         }.into()
     }
 
@@ -146,22 +146,22 @@ pub fn can_castle(
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct CastleSettings {
-    /// The Column/File the king starts on.
-    pub king_column: u8,
+    /// The File the king starts on.
+    pub king_file: File,
 
-    /// The start column of the kingside rook.
-    pub short_column: u8,
+    /// The start file of the kingside rook.
+    pub short_file: File,
 
-    /// The start column of the queenside rook.
-    pub long_column: u8,
+    /// The start file of the queenside rook.
+    pub long_file: File,
 }
 
 impl Default for CastleSettings {
     fn default() -> Self {
         Self {
-            king_column: 4,
-            short_column: 7,
-            long_column: 0
+            king_file: File::E,
+            short_file: File::H,
+            long_file: File::A,
         }
     }
 }

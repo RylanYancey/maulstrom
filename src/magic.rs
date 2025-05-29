@@ -131,14 +131,3 @@ const BISHOP_MAGICS: &[BlackMagicEntry; 64] = &gen_entries!(
         (0x100000C05F582008, 11140)
     ]
 );
-
-#[cfg(test)]
-mod tests {
-    use crate::square::{File, Rank};
-    use super::*;
-
-    #[test]
-    fn bishop_moves() {
-        panic!("{:?}", get_bishop_moves(Square::new(Rank::First, File::B), BitBoard(0)));
-    }
-}

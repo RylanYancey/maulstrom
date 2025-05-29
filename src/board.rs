@@ -129,7 +129,7 @@ impl BitBoard {
         }
     }
 
-    pub const fn pawn_moves(&self, team: Team) -> BitBoard {
+    pub const fn pawn_captures(&self, team: Team) -> BitBoard {
         let pr = self.0 & !0x8080808080808080;
         let pl = self.0 & !0x0101010101010101;
         match team {

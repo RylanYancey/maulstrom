@@ -80,10 +80,10 @@ pub fn defense(state: &BoardState) -> BitBoard {
         }
 
         if enemy_pawns.intersects(wormholes) {
-            defense |= (enemy_pawns & wormholes).pawn_moves(!state.turn) & !wormholes;
+            defense |= (enemy_pawns & wormholes).pawn_captures(!state.turn) & !wormholes;
         }
 
-        defense |= (enemy_pawns & !wormholes).pawn_moves(!state.turn);
+        defense |= (enemy_pawns & !wormholes).pawn_captures(!state.turn);
 
         defense = defense.transmit(wormholes);
     }

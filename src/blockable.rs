@@ -2,7 +2,7 @@ use crate::{board::BitBoard, cached::*, ray::*, pieces::Piece, square::Square, s
 
 /// Compute the squares a piece could move to to maintain a pin, block check, or capture a checking piece.
 /// This can be used to filter out moves. If there is no check or pins, then the returned mask with be u64::MAX.
-pub fn blockable(sq: Square, state: &BoardState) -> BitBoard {
+pub fn blockable(sq: Square, state: &BoardState, relevant: BitBoard) -> BitBoard {
     let mut blockable = BitBoard(!0u64);
     if let Some(king) = state.checkable_king() {
         // The wormholes that will be available to the opponent NEXT turn.
@@ -10,7 +10,7 @@ pub fn blockable(sq: Square, state: &BoardState) -> BitBoard {
         // squares occupied by anything.
         let occupied = state.pieces.occupied().without(king).transmit(wormholes);
         // squares occupied by enemy pieces.
-        let enemy = state.pieces.on_team(!state.turn).transmit(wormholes);
+        let enemy = (state.pieces.on_team(!state.turn) & relevant).transmit(wormholes);
 
         let enemy_diag = (state.pieces.bishops | state.pieces.queens) & enemy;
         let enemy_ortho = (state.pieces.rooks | state.pieces.queens) & enemy;

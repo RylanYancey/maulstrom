@@ -164,7 +164,7 @@ pub fn trace(state: &BoardState, src: Square, dst: Square) -> Option<MoveTrace> 
         }
     }
 
-    let blockable = crate::blockable::blockable(src, state);
+    let blockable = BitBoard(!0); // crate::blockable::blockable(src, state);
     if !blockable.has(dst) {
         return None;
     }

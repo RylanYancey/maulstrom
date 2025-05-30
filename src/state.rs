@@ -8,6 +8,7 @@ pub struct BoardState {
     pub wormholes: BitBoard,
     pub fullmoves: u16,
     pub halfmoves: u8,
+    pub is_check: bool,
     pub pieces: Pieces,
     pub castle: CastleRights,
     pub turn: Team,
@@ -95,6 +96,8 @@ impl BoardState {
             next.fullmoves += 1;
         }
 
+        next.is_check = delta.is_check();
+
         next
     }
 
@@ -151,6 +154,8 @@ impl BoardState {
             prev.fullmoves -= 1;
         }
 
+        prev.is_check = delta.was_check();
+
         prev
     }
 
@@ -179,6 +184,7 @@ impl Default for BoardState {
             wormholes: BitBoard(0),
             fullmoves: 1,
             halfmoves: 0,
+            is_check: false,
             pieces: Pieces::default(),
             castle: CastleRights::default(),
             turn: Team::White,

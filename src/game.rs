@@ -162,12 +162,14 @@ impl ChessGame {
                 delta.set_src_sq(src);
                 delta.set_dst_sq(dst);    
 
-                if let Some(side) = trace.loses_castle {
-                    castle.lose(side, prev.turn);
-                }
-    
-                if let Some(side) = trace.takes_castle {
-                    castle.lose(side, !prev.turn);
+                if !trace.is_king_move {
+                    if let Some(side) = trace.loses_castle {
+                        castle.lose(side, prev.turn);
+                    }
+        
+                    if let Some(side) = trace.takes_castle {
+                        castle.lose(side, !prev.turn);
+                    }
                 }
 
                 if let Some(capture) = trace.captures {
@@ -219,6 +221,9 @@ impl ChessGame {
 
             self.cursor.index += 1;
             self.cursor.state = self.cursor.state.next(delta);
+
+            // todo: check for end condition
+
             Ok(
                 PlaySuccess {
                     branch: None,

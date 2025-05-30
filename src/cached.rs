@@ -113,19 +113,6 @@ pub const FILE: [u64; 64] = [
     1157442765409226768, 2314885530818453536, 4629771061636907072, 9259542123273814144
 ];
 
-pub const TEMP: [u64; 64] = {
-    let mut result = [0u64; 64];
-    let mut i = 0;
-
-    while i < 64 {
-        result[i] = RAY_NEG_POS_INCLUSIVE[i as usize] & !(1 << i);
-
-        i += 1;
-    }
-
-    result
-};
-
 /// All squares in the +rank direction, inclusively.
 #[rustfmt::skip]
 pub const RAY_POS_ZERO_INCLUSIVE: [u64; 64] = [

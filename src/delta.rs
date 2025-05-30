@@ -34,6 +34,8 @@ pub struct BoardDelta {
     ///  - bit 25: IS_CASTLE_LONG
     ///  - bit 26: IS_CASTLE_SHORT
     ///  - bit 27: WORMHOLE_IN_1 (wormhole will be popped next turn)
+    ///  - bit 28: WAS_CHECK (whether the king was in check in the position the move was played in)
+    ///  - bit 29: IS_CHECK (whether the king is in check in the resulting position)
     data: u32,
 }
 
@@ -75,7 +77,7 @@ impl BoardDelta {
     }
 
     pub fn get_ep_capture_sq(&self) -> Option<Square> {
-        if self.data & 1 << 24 != 0 {
+        if self.data & (1 << 24) != 0 {
             Some(Square::from_index(((self.squares >> 19) & 0x3F) as usize))
         } else {
             None
@@ -89,7 +91,7 @@ impl BoardDelta {
     }
 
     pub fn is_double_push(&self) -> bool {
-        (self.data & 1 << 16) != 0
+        self.data & (1 << 16) != 0
     }
 
     pub fn set_is_double_push(&mut self) {
@@ -169,7 +171,7 @@ impl BoardDelta {
     }
 
     pub fn is_popped_wormhole(&self) -> bool {
-        (self.data & 1 << 18) != 0
+        self.data & (1 << 18) != 0
     }
 
     pub fn set_popped_wormhole(&mut self) {
@@ -177,7 +179,7 @@ impl BoardDelta {
     }
 
     pub fn is_pushed_wormhole(&self) -> bool {
-        (self.data & 1 << 19) != 0
+        self.data & (1 << 19) != 0
     }
 
     pub fn set_pushed_wormhole(&mut self) {
@@ -194,7 +196,7 @@ impl BoardDelta {
     }
 
     pub fn is_resets_halfmoves(&self) -> bool {
-        self.data & 1 << 17 != 0
+        self.data & (1 << 17) != 0
     }
 
     pub fn set_resets_halfmoves(&mut self) {
@@ -207,6 +209,22 @@ impl BoardDelta {
 
     pub fn set_wormhole_in_1(&mut self) {
         self.data |= 1 << 27;
+    }
+
+    pub fn was_check(&self) -> bool {
+        self.data & (1 << 28) != 0
+    }
+
+    pub fn set_was_check(&mut self) {
+        self.data |= 1 << 28
+    }
+
+    pub fn is_check(&self) -> bool {
+        self.data & (1 << 29) != 0
+    }
+
+    pub fn set_is_check(&mut self) {
+        self.data |= 1 << 29
     }
 }
 

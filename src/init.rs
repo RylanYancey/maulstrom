@@ -46,6 +46,7 @@ pub fn init_chess960(rng: &mut WyRand) -> BoardState {
         wormholes: BitBoard::new(),
         fullmoves: 1,
         halfmoves: 0,
+        is_check: false,
         pieces,
         castle,
         turn: Team::White,

@@ -111,6 +111,29 @@ impl CastleRights {
         .without(rook_src)
         .without(king)
     }
+
+    /// Returns Some(side) if the move is a rook moving off its start square.
+    /// "sqs" is a bitboard instead of a square so you can transmit wormholes.
+    pub fn move_loses_castle(&self, srcs: BitBoard, team: Team) -> Option<Castle> {
+        for side in [Castle::Long, Castle::Short] {
+            if self.has(side, team) && srcs.has(self.rook_start(side, team)) {
+                return Some(side)
+            }
+        }
+
+        None
+    }
+
+    /// Returns Some(side) if a capture on dsts would take castling from the given team.
+    pub fn capture_takes_castle(&self, dsts: BitBoard, team: Team) -> Option<Castle> {
+        for side in [Castle::Long, Castle::Short] {
+            if self.has(side, team) && dsts.has(self.rook_start(side, team)) {
+                return Some(side)
+            }
+        }
+
+        None
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

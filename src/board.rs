@@ -4,6 +4,7 @@
 use std::fmt::{self, Write};
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
+use crate::square::Rank;
 use crate::team::Team;
 
 use super::square::Square;
@@ -80,6 +81,10 @@ impl BitBoard {
 
     pub const fn set_rank_u8(&mut self, rank: u8) {
         self.0 |= 0xFF << (rank * 8);
+    }
+
+    pub fn with_rank(self, rank: Rank) -> Self {
+        self.with_rank_u8(rank.to_u8())
     }
 
     pub const fn with_rank_u8(self, rank: u8) -> Self {
@@ -276,5 +281,11 @@ impl Iterator for BitBoardIndices {
         } else {
             None
         }
+    }
+}
+
+impl From<Rank> for BitBoard {
+    fn from(value: Rank) -> Self {
+        Self::new().with_rank(value)
     }
 }

@@ -15,11 +15,11 @@ pub struct BoardState {
 
 impl BoardState {
     pub fn valid_moves(&self, sq: Square) -> BitBoard {
-        crate::compute::compute(self, sq)
+        crate::compute::compute(self, sq, None)
     }
 
     pub fn trace(&self, src: Square, dst: Square) -> Option<MoveTrace> {
-        crate::trace::trace(self, src, dst)
+        crate::trace::trace(self, src, dst, None)
     }
 
     /// Execute changes.

@@ -49,402 +49,347 @@ impl Default for MoveTrace {
         }
     }
 }
-
-pub fn trace(state: &BoardState, src: Square, dst: Square) -> Option<MoveTrace> {
-    let team = state.turn;
-    let holes = state.wormholes;
-    let mut occupied = state.pieces.occupied();
-    if holes.intersects(occupied) {
-        occupied |= holes;
-    }
-
-    let mut on_team = state.pieces.on_team(team);
-    if holes.intersects(on_team) {
-        on_team |= holes;
-    }
-    
-    // cannot move out-of-turn or an empty square.
-    if !on_team.has(src) {
+ 
+pub fn trace(state: &BoardState, src: Square, dst: Square, defense: Option<BitBoard>) -> Option<MoveTrace> {
+    // cannot move out-of-turn.
+    if !state.pieces.on_team(state.turn).has(src) {
         return None;
     }
 
-    let mut sqs = BitBoard::new() | src;
-    if holes.has(src) {
-        // cannot move from a wormhole to a wormhole.
-        if holes.has(dst) {
-            return None;
-        }
+    let wormholes = state.wormholes;
 
-        sqs |= holes;
-    }
+    if let Some(pc) = state.pieces.piece_at_or_on_hole(src, wormholes) {
+        let friendly = state.pieces.on_team(state.turn);
+        let dsts = BitBoard::from(dst).transmit(wormholes);
+        let srcs = BitBoard::from(src).transmit(wormholes);
+        let turn = state.turn;
+        let occupied = state.pieces.occupied().transmit(wormholes);
+        let holes_are_occ = occupied.intersects(wormholes);
+        let captures = state.pieces.piece_at_or_on_hole(dst, wormholes);
+        let loses_castle = state.castle.move_loses_castle(srcs, turn);
+        let takes_castle = state.castle.capture_takes_castle(dsts, !turn);
 
-    let dsts = if holes.has(dst) { holes } else { BitBoard::new() | dst };
+        match pc {
+            Piece::King => {
+                let defense = defense.unwrap_or_else(|| crate::defense::defense(state));
 
-    let takes_castle = if state.pieces.get(Piece::Rook, !state.turn).intersects(dsts) {
-        if dst == state.castle.rook_start(Castle::Long, !state.turn) {
-            Some(Castle::Long)
-        } else if dst == state.castle.rook_start(Castle::Short, !state.turn) {
-            Some(Castle::Short)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let captures = state.pieces.piece_at_or_on_hole(dst, holes);
-
-    if state.pieces.get(Piece::King, team).intersects(sqs) {
-        let defense = crate::defense::defense(state);
-
-        for side in [Castle::Short, Castle::Long] {
-            if can_castle(side, team, state.castle, defense, occupied, src) && (
-                dst == state.castle.rook_start(side, team) ||
-                dst == state.castle.king_target(side, team)
-            ) {
-                return Some(
-                    MoveTrace {
-                        is_castle: Some(side),
-                        is_king_move: true,
-                        ..MoveTrace::default()
+                if dst.rank() == turn.back_rank() && src.rank() == turn.back_rank() {
+                    for side in [Castle::Long, Castle::Short] {
+                        if src == state.castle.king_start(turn) {
+                            if can_castle(side, turn, state.castle, defense, occupied, src) && (
+                                dst == state.castle.rook_target(side, turn) || 
+                                dst == state.castle.king_target(side, turn)
+                            ) {
+                                return Some(MoveTrace {
+                                    is_king_move: true,
+                                    is_castle: Some(side),
+                                    ..MoveTrace::default()
+                                })
+                            }
+                        }
                     }
-                )
-            }
-        }
-
-        // cannot move to start square. (chess960 castling this is possible)
-        if src == dst {
-            return None;
-        }
-
-        // cannot move to piece on own team. (unless castling from rook->king)
-        if on_team.intersects(dsts) {
-            return None;
-        }
-
-        let moves = BitBoard(KING_MOVES[src.to_index()]) & !(on_team | defense);
-
-        if moves.intersects(dsts) {
-            return Some(
-                MoveTrace {
-                    is_king_move: true,
-                    takes_castle,
-                    captures,
-                    ..MoveTrace::default()
                 }
-            )
-        } else if moves.intersects(holes) && holes.intersects(dsts) {
-            return Some(
-                MoveTrace {
-                    is_king_move: true,
-                    route: Some(((moves & holes).first().unwrap(), dst)),
-                    takes_castle,
-                    captures,
-                    ..MoveTrace::default()
-                }
-            )
-        } else {
-            if holes.has(src) {
-                for out_sq in holes.without(src) {
-                    if (BitBoard(KING_MOVES[out_sq.to_index()]) & !(on_team | defense)).has(dst) {
-                        return Some(
-                            MoveTrace {
+
+                if wormholes.has(src) {
+                    for out_sq in wormholes {
+                        let mv = out_sq.king_moves() & !(friendly | defense | wormholes);
+                        if mv.has(dst) {
+                            return Some(MoveTrace {
+                                route: (out_sq != src).then(|| (src, out_sq)),
                                 is_king_move: true,
-                                route: Some((src, out_sq)),
+                                ..MoveTrace::default()
+                            })
+                        }
+                    }
+                } else {
+                    let mv = src.king_moves() & !(friendly | defense);
+                    if mv.intersects(dsts) {
+                        return Some(MoveTrace {
+                            is_king_move: true,
+                            ..MoveTrace::default()
+                        })
+                    }
+                }
+            },
+            Piece::Knight => {
+                let blockable = crate::blockable::blockable(src, state);
+                if wormholes.has(src) {
+                    for out_sq in wormholes {
+                        if ((out_sq.knight_moves() & !friendly) & blockable).intersects(dsts) {
+                            return Some(MoveTrace {
+                                route: (out_sq != src).then(|| (src, out_sq)),
                                 takes_castle,
                                 captures,
                                 ..MoveTrace::default()
+                            })
+                        }
+                    }
+                } else {
+                    if ((src.knight_moves() & !friendly) & blockable).intersects(dsts) {
+                        return Some(MoveTrace {
+                            takes_castle,
+                            captures,
+                            ..MoveTrace::default()
+                        })
+                    }
+                }
+            },
+            Piece::Bishop => {
+                let blockable = crate::blockable::blockable(src, state);
+                if wormholes.has(src) {
+                    for out_sq in wormholes {
+                        let diag = (out_sq.bishop_moves(occupied) & blockable) & !friendly;
+                        if diag.has(dst) {
+                            return Some(MoveTrace {
+                                route: (src != out_sq).then(|| (src, out_sq)),
+                                captures,
+                                takes_castle,
+                                ..Default::default()
+                            })
+                        }
+                    }
+                } else {
+                    let moves = src.bishop_moves(occupied);
+                    if ((moves & !friendly) & blockable).intersects(dsts) {
+                        return Some(MoveTrace {
+                            takes_castle,
+                            captures,
+                            ..MoveTrace::default()
+                        })
+                    }
+
+                    if !holes_are_occ {
+                        for in_sq in moves & wormholes {
+                            if let Some(ray) = src.diag_ray(in_sq) {
+                                for out_sq in wormholes {
+                                    if ((ray.cast(out_sq, occupied) & !friendly) & blockable).intersects(dsts) {
+                                        return Some(MoveTrace {
+                                            route: Some((in_sq, out_sq)),
+                                            takes_castle,
+                                            captures,
+                                            ..MoveTrace::default()
+                                        })
+                                    }
+                                }
                             }
-                        )
+                        }
                     }
                 }
             }
+            Piece::Rook => {
+                let blockable = crate::blockable::blockable(src, state);
 
-            return None
-        }
-    }
-
-    let blockable = BitBoard(!0); // crate::blockable::blockable(src, state);
-    if !blockable.has(dst) {
-        return None;
-    }
-
-    if src == dst {
-        return None;
-    }
-
-    if on_team.intersects(dsts) {
-        if state.pieces.get(Piece::Rook, team).intersects(sqs) {
-            if let Some(king) = state.pieces.get(Piece::King, team).first() {
-                if dst == king {
-                    for side in [Castle::Long, Castle::Short] {
-                        if state.castle.has(side, team) && src == state.castle.rook_start(side, team) {
-                            let defense = crate::defense::defense(state);
-                            if can_castle(side, team, state.castle, defense, occupied, king) {
-                                return Some(
-                                    MoveTrace {
-                                        route: None,
+                let king_sq = state.castle.king_start(turn);
+                if dsts.has(king_sq) && state.pieces.get(Piece::King, turn).has(king_sq) {
+                    if blockable == BitBoard(!0) {
+                        for side in [Castle::Long, Castle::Short] {
+                            if src == state.castle.rook_start(side, turn) {
+                                let defense = defense.unwrap_or_else(|| crate::defense::defense(state));
+                                if can_castle(side, turn, state.castle, defense, occupied, king_sq) {
+                                    return Some(MoveTrace {
                                         is_castle: Some(side),
                                         is_king_move: true,
                                         ..Default::default()
+                                    })
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if wormholes.has(src) {
+                        for out_sq in wormholes {
+                            let ortho = (out_sq.rook_moves(occupied) & !friendly) & blockable;
+                            if ortho.has(dst) {
+                                return Some(MoveTrace {
+                                    route: (src != out_sq).then(|| (src, out_sq)),
+                                    captures,
+                                    takes_castle,
+                                    loses_castle,
+                                    ..Default::default()
+                                })
+                            }
+                        }
+                    } else {
+                        let moves = src.rook_moves(occupied);
+                        if ((moves & !friendly) & blockable).intersects(dsts) {
+                            return Some(MoveTrace {
+                                captures,
+                                takes_castle,
+                                loses_castle,
+                                ..MoveTrace::default()
+                            })
+                        }
+
+                        if !holes_are_occ {
+                            for in_sq in moves & wormholes {
+                                if let Some(ray) = src.ortho_ray(in_sq) {
+                                    for out_sq in wormholes {
+                                        if ((ray.cast(out_sq, occupied) & !friendly) & blockable).has(dst) {
+                                            return Some(MoveTrace {
+                                                route: Some((in_sq, out_sq)),
+                                                captures,
+                                                takes_castle,
+                                                loses_castle,
+                                                ..Default::default()
+                                            })
+                                        }
                                     }
-                                )
+                                }
                             }
                         }
                     }
                 }
             }
-        }
+            Piece::Queen => {
+                let blockable = crate::blockable::blockable(src, state);
+                let takeable = (!friendly) | blockable;
 
-        return None;
-    }
-
-    if state.pieces.get(Piece::Pawn, team).intersects(sqs) {
-        let requires_promotion = dsts.intersects(BitBoard::new().with_rank_u8((!team).back_rank_u8()));
-        let dir = team.pawn_dir();
-        let pawn_rank = team.pawn_rank_u8();
-
-        if holes.has(src) {
-            for out_sq in holes {
-                let takes = match team {
-                    Team::White => BitBoard(WHITE_PAWN_ATTACKS[out_sq.to_index()]),
-                    Team::Black => BitBoard(BLACK_PAWN_ATTACKS[out_sq.to_index()]),
-                };
-
-                if takes.intersects(dsts) {
-                    if dsts.intersects(state.pieces.on_team(!team)) {
-                        return Some(
-                            MoveTrace {
+                if wormholes.has(src) {
+                    for out_sq in wormholes {
+                        if ((out_sq.rook_moves(occupied) | out_sq.bishop_moves(occupied)) & takeable).has(dst) {
+                            return Some(MoveTrace {
                                 route: (out_sq != src).then(|| (src, out_sq)),
                                 captures,
-                                requires_promotion,
-                                ..MoveTrace::default()
-                            }
-                        )
-                    } else {
-                        if let Some(ep_sq) = state.en_passant {
-                            if dsts.has(ep_sq) {
-                                if let Some(ep_pawn) = ep_sq.next(((!state.turn).pawn_dir(), 0)) {
-                                    return Some(
-                                        MoveTrace {
-                                            route: (out_sq != src).then(|| (src, out_sq)),
-                                            is_capture_en_passant: Some(ep_pawn),
+                                takes_castle,
+                                ..Default::default()
+                            })
+                        }
+                    }
+                } else {
+                    let moves = src.rook_moves(occupied) | src.bishop_moves(occupied);
+
+                    if (moves & takeable).intersects(dsts) {
+                        return Some(MoveTrace {
+                            captures,
+                            takes_castle,
+                            ..Default::default()
+                        })
+                    }
+
+                    if !holes_are_occ {
+                        for in_sq in moves & wormholes {
+                            if let Some(ray) = src.ray(in_sq) {
+                                for out_sq in wormholes {
+                                    if (ray.cast(out_sq, occupied) & takeable).has(dst) {
+                                        return Some(MoveTrace {
+                                            route: Some((in_sq, out_sq)),
                                             captures,
                                             takes_castle,
-                                            requires_promotion,
-                                            ..MoveTrace::default()
-                                        }
-                                    )
+                                            ..Default::default()
+                                        })
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+            Piece::Pawn => {
+                let delta = (turn.pawn_dir(), 0);
+                let pawn_rank = turn.pawn_rank();
+                let blockable = crate::blockable::blockable(src, state);
 
-            if dsts.intersects(occupied) {
-                return None;
-            }
+                let ep_tx = state.en_passant.map(|ep_sq| BitBoard::from(ep_sq).transmit(wormholes)).unwrap_or(BitBoard(0));
+                let takeable = (state.pieces.on_team(!state.turn) | ep_tx).transmit(wormholes) & blockable;
+                let requires_promotion = dsts.intersects(BitBoard::from((!turn).back_rank()));
 
-            if holes.intersects(BitBoard::new().with_rank_u8(pawn_rank)) {
-                for out_sq in holes {
-                    if let Some(one) = out_sq.next((dir, 0)) && !occupied.has(one) {
-                        if dsts.has(one) {
-                            return Some(
-                                MoveTrace {
-                                    route: (out_sq != src).then(|| (src, out_sq)),
+                if wormholes.has(src) {
+                    let is_pawn_rank = BitBoard::from(pawn_rank).intersects(wormholes);
+                    for out_sq in wormholes {
+                        if (out_sq.pawn_captures(turn) & takeable).has(dst) {
+                            if let Some(ep_sq) = state.en_passant && dst == ep_sq {
+                                return Some(MoveTrace {
+                                    route: (src != out_sq).then(|| (src, out_sq)),
+                                    captures,
+                                    takes_castle,
+                                    is_capture_en_passant: Some(ep_sq),
                                     requires_promotion,
-                                    ..MoveTrace::default()
+                                    ..Default::default()
+                                })
+                            } else {
+                                return Some(MoveTrace {
+                                    route: (src != out_sq).then(|| (src, out_sq)),
+                                    captures,
+                                    takes_castle,
+                                    requires_promotion,
+                                    ..Default::default()
+                                })
+                            }
+                        }
+
+                        if let Some(one) = out_sq.next(delta) && !occupied.has(one) {
+                            if blockable.has(one) && one == dst {
+                                return Some(MoveTrace {
+                                    route: (src != out_sq).then(|| (src, out_sq)),
+                                    requires_promotion,
+                                    ..Default::default()
+                                })
+                            }
+
+                            if let Some(two) = out_sq.next(delta) && is_pawn_rank && !occupied.has(two) {
+                                if blockable.has(two) && two == dst {
+                                    return Some(MoveTrace {
+                                        route: (src != out_sq).then(|| (src, out_sq)),
+                                        requires_promotion,
+                                        allows_en_passant: Some(one),
+                                        ..Default::default()
+                                    })
                                 }
-                            )
-                        }
-                        if let Some(two) = one.next((dir, 0)) && !occupied.has(two) {
-                            if dsts.has(two) {
-                                return Some(
-                                    MoveTrace {
-                                        route: (out_sq != src).then(|| (src, out_sq)),
-                                        requires_promotion,
-                                        allows_en_passant: Some(one),
-                                        ..MoveTrace::default()
-                                    }
-                                )
                             }
                         }
                     }
-                }
-            } else {
-                for out_sq in holes {
-                    if let Some(one) = out_sq.next((dir, 0)) && dsts.has(one) {
-                        return Some(
-                            MoveTrace {
-                                route: (out_sq != src).then(|| (src, out_sq)),
-                                requires_promotion,
-                                ..MoveTrace::default()
-                            }
-                        )
-                    }
-                }
-            }
-        } else {
-            if let Some(one) = src.next((dir, 0)) && !occupied.has(one) {
-                if dsts.has(one) {
-                    return Some(
-                        MoveTrace {
-                            requires_promotion,
-                            ..MoveTrace::default()
-                        }
-                    )
-                }
-
-                if src.rank_u8() == pawn_rank {
-                    if let Some(two) = one.next((dir, 0)) && dsts.has(two) {
-                        return Some(
-                            MoveTrace {
-                                allows_en_passant: Some(one),
-                                requires_promotion,
-                                ..MoveTrace::default()
-                            }
-                        )
-                    }
-
-                    if holes.has(one) {
-                        for out_sq in holes.without(one) {
-                            if let Some(one2) = out_sq.next((dir, 0)) && dsts.has(one2) {
-                                return Some(
-                                    MoveTrace {
-                                        route: Some((one, out_sq)),
-                                        allows_en_passant: Some(one),
-                                        requires_promotion,
-                                        ..MoveTrace::default()
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if state.pieces.get(Piece::Knight, team).intersects(sqs) {
-        let moves = BitBoard(KNIGHT_MOVES[src.to_index()]) & !on_team;
-
-        if moves.intersects(dsts) {
-            return Some(
-                MoveTrace {
-                    takes_castle,
-                    captures,
-                    ..MoveTrace::default()
-                }
-            )
-        } else if moves.intersects(holes) && holes.intersects(dsts) {
-            return Some(
-                MoveTrace {
-                    route: Some(((moves & holes).first().unwrap(), dst)),
-                    takes_castle,
-                    captures,
-                    ..MoveTrace::default()
-                }
-            )
-        } else {
-            if holes.has(src) {
-                for out_sq in holes.without(src) {
-                    if (BitBoard(KNIGHT_MOVES[out_sq.to_index()]) & !on_team).has(dst) {
-                        return Some(
-                            MoveTrace {
-                                route: Some((src, out_sq)),
-                                takes_castle,
+                } else {
+                    if (src.pawn_captures(turn) & takeable).intersects(dsts) {
+                        if let Some(ep_sq) = state.en_passant && dst == ep_sq {
+                            return Some(MoveTrace {
                                 captures,
-                                ..MoveTrace::default()
-                            }
-                        )
-                    }
-                }
-            }
-
-            return None
-        }
-    }
-
-    if state.pieces.get(Piece::Queen, team).intersects(sqs) {
-        if let Some(trace) = ray(occupied, pos_zero, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, neg_zero, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, zero_neg, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, zero_pos, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, pos_pos, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, pos_neg, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, neg_neg, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, neg_pos, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        return None;
-    }
-
-    if state.pieces.get(Piece::Bishop, team).intersects(sqs) {
-        if let Some(trace) = ray(occupied, pos_zero, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, neg_zero, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, zero_neg, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, zero_pos, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        return None;
-    }
-
-    if state.pieces.get(Piece::Rook, team).intersects(sqs) {
-        if let Some(trace) = ray(occupied, pos_pos, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, pos_neg, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, neg_neg, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        if let Some(trace) = ray(occupied, neg_pos, captures, takes_castle, holes, dsts, src) { return Some(trace) }
-        return None;
-    }
-
-    None
-}
-
-fn ray(
-    occupied: BitBoard,
-    delta: fn(Square, BitBoard) -> BitBoard,
-    captures: Option<Piece>,
-    takes_castle: Option<Castle>,
-    holes: BitBoard,
-    dsts: BitBoard,
-    src: Square,
-) -> Option<MoveTrace> {
-    if holes.has(src) {
-        for out_sq in holes {
-            let ray = delta(out_sq, occupied);
-            if ray.intersects(dsts) {
-                return Some(
-                    MoveTrace {
-                        route: (src != out_sq).then(|| (src, out_sq)),
-                        captures,
-                        takes_castle,
-                        ..MoveTrace::default()
-                    }
-                )
-            }
-        }
-    } else {
-        let ray = delta(src, occupied);
-
-        if ray.intersects(dsts) {
-            return Some(
-                MoveTrace {
-                    captures,
-                    takes_castle,
-                    ..MoveTrace::default()
-                }
-            )
-        } else {
-            if let Some(in_sq) = (ray & holes).first() && !occupied.has(in_sq) {
-                for out_sq in holes & !ray {
-                    let ray = delta(out_sq, occupied);  
-
-                    if ray.intersects(dsts) {
-                        return Some(
-                            MoveTrace {
-                                route: Some((in_sq, out_sq)),
+                                is_capture_en_passant: Some(ep_sq),
+                                takes_castle,
+                                requires_promotion,
+                                ..Default::default()
+                            })
+                        } else {
+                            return Some(MoveTrace {
                                 captures,
                                 takes_castle,
-                                ..MoveTrace::default()
+                                requires_promotion,
+                                ..Default::default()
+                            })
+                        }
+                    }
+
+                    let is_pawn_rank = src.rank() == turn.pawn_rank();
+                    if let Some(one) = src.next(delta) && !occupied.has(one) {
+                        if blockable.has(one) && one == dst {
+                            return Some(MoveTrace {
+                                requires_promotion,
+                                takes_castle,
+                                ..Default::default()
+                            })
+                        } 
+
+                        if is_pawn_rank {
+                            if wormholes.has(one) {
+                                for out_sq in wormholes {
+                                    if let Some(two) = out_sq.next(delta) && !occupied.has(two) && blockable.has(two) {
+                                        return Some(MoveTrace {
+                                            route: (one != out_sq).then(|| (one, out_sq)),
+                                            allows_en_passant: Some(one),
+                                            requires_promotion,
+                                            ..Default::default()
+                                        })
+                                    }
+                                }
+                            } else {
+                                if let Some(two) = one.next(delta) && !occupied.has(two) && blockable.has(two) {
+                                    return Some(MoveTrace {
+                                        allows_en_passant: Some(one),
+                                        requires_promotion,
+                                        ..Default::default()
+                                    })
+                                }
                             }
-                        )
+                        }
                     }
                 }
             }

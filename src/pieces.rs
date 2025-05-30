@@ -1,5 +1,4 @@
-use crate::{board::BitBoard, square::Square, team::Team};
-
+use crate::{board::{BitBoard, BitBoardIter}, square::Square, team::Team};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub enum Piece {
@@ -40,12 +39,16 @@ impl Piece {
                 0 => Self::Bishop,
                 1 => Self::Knight,
                 2 => Self::Queen,
-                3 => Self::King,
-                4 => Self::Rook,
+                3 => Self::Rook,
+                4 => Self::King,
                 5 => Self::Pawn,
                 _ => return None
             }
         )
+    }
+
+    fn next(&self) -> Option<Self> {
+        Self::from_u8(self.to_u8() + 1)
     }
 }
 
@@ -189,6 +192,23 @@ impl Pieces {
             Piece::Pawn => &mut self.pawns,
         } |= sqs;
     }
+
+    pub fn as_array(&self) -> [(Team, Piece, BitBoard); 12] {
+        [
+            (Team::White, Piece::Bishop, self.bishops & self.white),
+            (Team::Black, Piece::Bishop, self.bishops & self.black),
+            (Team::White, Piece::Knight, self.knights & self.white),
+            (Team::Black, Piece::Knight, self.knights & self.black),
+            (Team::White, Piece::Queen, self.queens & self.white),
+            (Team::Black, Piece::Queen, self.queens & self.black),
+            (Team::White, Piece::Rook, self.rooks & self.white),
+            (Team::Black, Piece::Rook, self.rooks & self.black),
+            (Team::White, Piece::King, self.kings & self.white),
+            (Team::Black, Piece::King, self.kings & self.black),
+            (Team::White, Piece::Pawn, self.pawns & self.white),
+            (Team::Black, Piece::Pawn, self.pawns & self.black)
+        ]
+    }
 }
 
 impl Default for Pieces {
@@ -202,6 +222,32 @@ impl Default for Pieces {
             rooks: BitBoard(0x8100000000000081),
             white: BitBoard(0x000000000000FFFF),
             black: BitBoard(0xFFFF000000000000),
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct PiecesIter {
+    pub data: [(Team, Piece, BitBoard); 12],
+    pub iter: BitBoardIter,
+    pub curr: usize, 
+}
+
+impl Iterator for PiecesIter {
+    type Item = (Team, Piece, Square);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.iter.next() {
+                None => {
+                    self.curr += 1;
+                    self.iter = self.data.get(self.curr)?.2.into_iter();
+                },
+                Some(sq) => {
+                    let (team, pc, _) = self.data[self.curr];
+                    return Some(( team, pc, sq ))
+                }
+            }
         }
     }
 }

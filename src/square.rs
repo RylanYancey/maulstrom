@@ -1,7 +1,7 @@
 
 //! Struct for representing squares on a chess board.
 
-use std::{cmp::Ordering, mem, ops::{Add, BitOr}};
+use std::{cmp::Ordering, fmt, mem, ops::{Add, BitOr}};
 use crate::{board::BitBoard, cached::*, ray::Ray, team::Team};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Ord, PartialOrd)]
@@ -89,7 +89,7 @@ impl From<u8> for File {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Ord, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Square(u8);
 
 impl Square {
@@ -220,9 +220,18 @@ impl BitOr<Square> for Square {
     }
 }
 
+impl fmt::Debug for Square {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Square")
+            .field("rank", &self.rank())
+            .field("file", &self.file())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Square, BitBoard};
+    use super::BitBoard;
 
     #[test]
     fn king_moves() {

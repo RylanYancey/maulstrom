@@ -25,7 +25,7 @@ pub struct WyRand {
 
 impl WyRand {
     pub fn from_entropy() -> Self {
-        Self { seed: getrandom::u64().expect("Failed to generate seed from entropy.") }
+        Self { seed: entropy() }
     }
 
     pub fn next(&mut self) -> u64 {

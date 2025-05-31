@@ -209,6 +209,14 @@ impl Pieces {
             (Team::Black, Piece::Pawn, self.pawns & self.black)
         ]
     }
+
+    pub fn iter(&self) -> PiecesIter {
+        PiecesIter {
+            data: self.as_array(),
+            iter: (self.bishops & self.white).into_iter(),
+            curr: 0,
+        }
+    }
 }
 
 impl Default for Pieces {

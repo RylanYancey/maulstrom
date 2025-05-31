@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn entropy() -> u64 {
     match getrandom::u64() {
         Ok(v) => v,
@@ -8,6 +9,12 @@ pub fn entropy() -> u64 {
             38938593895389
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn entropy() -> u64 {
+    let now = web_time::Instant::now().elapsed().subsec_millis() as u64;
+    now.wrapping_mul(0xa076_1d64_78bd_642f)
 }
 
 /// Wasm-compatible Wyrand.
